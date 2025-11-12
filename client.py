@@ -60,8 +60,8 @@ def send_messages(client_socket):
 
 # ---- Main ----
 # THÔNG TIN KẾT NỐI TỪ NGROK
-NGROK_HOST = '0.tcp.ap.ngrok.io'  
-NGROK_PORT = 16027         
+NGROK_HOST = 'learn-if.gl.at.ply.gg'  
+NGROK_PORT = 60326        
 
 nickname = input("Nhập nickname của bạn: ")
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
