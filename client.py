@@ -31,7 +31,7 @@ def receive_messages(client_socket):
             break
 
 def send_messages(client_socket):
-    """Luồng để gửi lệnh từ người dùng."""
+    """Tân Sửa: Luồng để gửi lệnh từ người dùng nhé"""
     while True:
         try:
             user_input = input("Nhập lệnh: ")
