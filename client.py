@@ -1,86 +1,97 @@
 import socket
 import threading
+import json
+import struct
+import sys
 
+# --- CẤU HÌNH KẾT NỐI (PLAYIT CỐ ĐỊNH) ---
+HOST = 'learn-if.gl.at.ply.gg'  
+PORT = 60326
+
+# --- CÁC HÀM HỖ TRỢ (PHẢI GIỐNG SERVER Y HỆT) ---
+def send_json(sock, data):
+    try:
+        json_data = json.dumps(data).encode('utf-8')
+        msg_len = struct.pack('!I', len(json_data))
+        sock.sendall(msg_len + json_data)
+    except:
+        pass
+
+def recv_json(sock):
+    def recvall(n):
+        data = b''
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet: return None
+            data += packet
+        return data
+    try:
+        raw_msglen = recvall(4)
+        if not raw_msglen: return None
+        msglen = struct.unpack('!I', raw_msglen)[0]
+        raw_data = recvall(msglen)
+        if not raw_data: return None
+        return json.loads(raw_data.decode('utf-8'))
+    except:
+        return None
+
+# --- LOGIC CLIENT ---
 def receive_messages(client_socket):
-    """Luồng để nhận tin nhắn từ server."""
     while True:
         try:
-            message = client_socket.recv(1024).decode('utf-8')
-            if not message:
+            # Nhận gói tin JSON
+            data = recv_json(client_socket)
+            if not data:
+                print("\n[!] Mất kết nối với server.")
+                client_socket.close()
                 break
             
-            parts = message.split(":", 1)
-            command = parts[0]
-
-            if command == "MSG":
-                msg_parts = parts[1].split(":", 1)
-                sender = msg_parts[0]
-                content = msg_parts[1]
-                print(f"\n[Tin nhắn từ {sender}]: {content}")
-            elif command == "LIST_RSP":
-                users = parts[1].split(",")
-                print("\n[Danh sách người dùng online]:")
-                for user in users:
-                    print(f"- {user}")
-            elif command == "INFO" or command == "ERROR":
-                print(f"\n[SERVER]: {parts[1]}")
-
+            # Xử lý hiển thị dựa trên loại tin nhắn
+            dtype = data.get('type')
+            
+            if dtype == 'chat':
+                print(f"\n{data['sender']}: {data['msg']}")
+            elif dtype == 'info':
+                print(f"\n[HỆ THỐNG]: {data['msg']}")
+                
         except:
-            print("Mất kết nối với server.")
             client_socket.close()
             break
 
 def send_messages(client_socket):
     while True:
         try:
-            user_input = input("Nhập lệnh: ")
-            
-            if user_input.lower() == '/quit':
+            msg = input("")
+            if not msg: continue
+
+            if msg.lower() == '/quit':
                 client_socket.close()
-                break
+                sys.exit()
             
-            elif user_input.lower() == '/list':
-                client_socket.send(b"LIST:")
-                
-            elif user_input.startswith('/send '):
-                parts = user_input.split(" ", 2)
-                if len(parts) < 3:
-                    print("Cú pháp sai. Dùng: /send <nickname> <message>")
-                    continue
-                recipient = parts[1]
-                message = parts[2]
-                client_socket.send(f"SEND:{recipient}:{message}".encode('utf-8'))
-            
-            else:
-                print("Lệnh không xác định. Các lệnh có sẵn: /list, /send, /quit")
+            # Gửi tin nhắn thường dưới dạng JSON
+            send_json(client_socket, {"type": "chat", "msg": msg})
+
         except:
-            print("Kết nối đã đóng.")
             break
 
+# --- MAIN ---
+print("--- CHAT APP V2 (JSON FIX) ---")
+nickname = input("Nhập tên của bạn: ")
 
-# ---- Main ----
-# THÔNG TIN KẾT NỐI TỪ NGROK
-NGROK_HOST = 'learn-if.gl.at.ply.gg'  
-NGROK_PORT = 60326        
-
-nickname = input("Nhập nickname của bạn: ")
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
 try:
-    # Sử dụng thông tin của ngrok để kết nối
-    print(f"Đang kết nối đến {NGROK_HOST}:{NGROK_PORT}...")
-    client.connect((NGROK_HOST, NGROK_PORT))
-    client.send(f"LOGIN:{nickname}".encode('utf-8'))
+    print(f"Đang kết nối đến {HOST}:{PORT}...")
+    client.connect((HOST, PORT))
+    # Gửi gói tin đăng nhập
+    send_json(client, {"type": "login", "nickname": nickname})
 except Exception as e:
-    print(f"Không thể kết nối đến server qua ngrok: {e}")
-    exit()
+    print(f"Không thể kết nối: {e}")
+    sys.exit()
 
+# Chạy luồng nhận tin
+recv_thread = threading.Thread(target=receive_messages, args=(client,))
+recv_thread.daemon = True
+recv_thread.start()
 
-print("Đã kết nối. Gõ lệnh để bắt đầu.")
-print("Các lệnh: /list, /send <nickname> <message>, /quit")
-
-receive_thread = threading.Thread(target=receive_messages, args=(client,))
-receive_thread.start()
-
-send_thread = threading.Thread(target=send_messages, args=(client,))
-send_thread.start()
+# Chạy luồng gửi tin
+send_messages(client)
