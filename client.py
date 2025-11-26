@@ -3,12 +3,18 @@ import threading
 import json
 import struct
 import sys
+import os
+import base64 # Thư viện để mã hóa file thành chuỗi
 
 # --- CẤU HÌNH KẾT NỐI ---
-HOST = 'learn-if.gl.at.ply.gg'  
-PORT = 60326
+HOST = 'learn-if.gl.at.ply.gg'  # <-- THAY CỦA BẠN
+PORT = 60326                    # <-- THAY CỦA BẠN
 
-# --- CÁC HÀM HỖ TRỢ (GIỮ NGUYÊN) ---
+# Tạo thư mục downloads nếu chưa có
+if not os.path.exists("downloads"):
+    os.makedirs("downloads")
+
+# --- CÁC HÀM HỖ TRỢ ---
 def send_json(sock, data):
     try:
         json_data = json.dumps(data).encode('utf-8')
@@ -35,7 +41,7 @@ def recv_json(sock):
     except:
         return None
 
-# --- LOGIC CLIENT (NÂNG CẤP HIỂN THỊ & NHẬP LỆNH) ---
+# --- LOGIC CLIENT ---
 def receive_messages(client_socket):
     while True:
         try:
@@ -43,20 +49,37 @@ def receive_messages(client_socket):
             if not data:
                 print("\n[!] Mất kết nối.")
                 client_socket.close()
-                sys.exit() # Thoát chương trình luôn
+                sys.exit()
             
             dtype = data.get('type')
             
             if dtype == 'chat':
                 print(f"\n[{data['room']}] {data['sender']}: {data['msg']}")
+            
             elif dtype == 'private':
                 print(f"\n>>> [MẬT] Từ {data['sender']}: {data['msg']}")
+            
             elif dtype == 'info':
                 print(f"\n>>> [HỆ THỐNG]: {data['msg']}")
+            
             elif dtype == 'error':
                 print(f"\n>>> [LỖI]: {data['msg']}")
+            
+            elif dtype == 'file':
+                # Xử lý nhận file
+                sender = data['sender']
+                filename = data['filename']
+                file_content = base64.b64decode(data['content']) # Giải mã chuỗi thành byte
                 
-        except:
+                # Lưu file
+                filepath = os.path.join("downloads", filename)
+                with open(filepath, "wb") as f:
+                    f.write(file_content)
+                
+                print(f"\n>>> [FILE] {sender} đã gửi file '{filename}'. Đã lưu tại {filepath}")
+
+        except Exception as e:
+            print(e)
             break
 
 def send_messages(client_socket):
@@ -65,47 +88,66 @@ def send_messages(client_socket):
             msg = input("")
             if not msg: continue
 
-            # --- XỬ LÝ CÁC LỆNH ĐẶC BIỆT ---
             if msg.lower() == '/quit':
                 client_socket.close()
                 sys.exit()
             
             elif msg.lower() == '/help':
-                print("\n--- HƯỚNG DẪN SỬ DỤNG ---")
-                print("/join <TênPhòng>  : Chuyển sang phòng khác")
-                print("/dm <Tên> <Tin>   : Nhắn tin riêng (Mật)")
-                print("/list             : Xem ai đang ở trong phòng")
-                print("/quit             : Thoát")
-                print("-------------------------")
+                print("\n--- HƯỚNG DẪN ---")
+                print("/join <TênPhòng>      : Chuyển phòng")
+                print("/dm <Tên> <Tin>       : Nhắn riêng")
+                print("/sendfile <ĐườngDẫn>  : Gửi file (VD: /sendfile anh.jpg)")
+                print("/list                 : Xem danh sách")
+                print("/quit                 : Thoát")
+                print("---------------------")
 
             elif msg.lower().startswith('/join '):
-                # Cắt chuỗi lấy tên phòng. VD: "/join Game" -> "Game"
                 parts = msg.split(" ", 1)
                 if len(parts) > 1:
                     send_json(client_socket, {"type": "join_room", "room_name": parts[1]})
-                else:
-                    print(">>> Lỗi: Vui lòng nhập tên phòng. VD: /join Game")
 
             elif msg.lower().startswith('/dm '):
-                # Cắt chuỗi lấy tên và tin. VD: "/dm Bob Alo ban oi"
                 parts = msg.split(" ", 2)
                 if len(parts) == 3:
                     send_json(client_socket, {"type": "private_msg", "recipient": parts[1], "msg": parts[2]})
+
+            elif msg.lower().startswith('/sendfile '):
+                # Cú pháp: /sendfile C:\Users\HinhAnh\avatar.jpg
+                file_path = msg.split(" ", 1)[1].replace('"', '') # Xóa dấu ngoặc kép nếu có
+                
+                if os.path.exists(file_path):
+                    # Kiểm tra kích thước file (Giới hạn 5MB cho an toàn)
+                    if os.path.getsize(file_path) > 5 * 1024 * 1024:
+                        print(">>> Lỗi: File quá lớn (>5MB).")
+                        continue
+
+                    print(">>> Đang gửi file...")
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
+                        # Mã hóa file thành chuỗi base64 để gửi qua JSON
+                        encoded_data = base64.b64encode(file_data).decode('utf-8')
+                    
+                    filename = os.path.basename(file_path)
+                    send_json(client_socket, {
+                        "type": "file",
+                        "filename": filename,
+                        "content": encoded_data
+                    })
+                    print(f">>> Đã gửi file '{filename}' thành công!")
                 else:
-                    print(">>> Lỗi: Sai cú pháp. Dùng: /dm <Tên> <Nội dung>")
+                    print(">>> Lỗi: Không tìm thấy file.")
 
             elif msg.lower() == '/list':
                 send_json(client_socket, {"type": "list_users"})
 
             else:
-                # Nếu không phải lệnh, gửi như tin nhắn chat thường
                 send_json(client_socket, {"type": "chat", "msg": msg})
 
         except:
             break
 
 # --- MAIN ---
-print("--- CHAT APP v2 (Rooms & Private) ---")
+print("--- CHAT APP v3 (File Transfer) ---")
 print("Gõ /help để xem danh sách lệnh.")
 nickname = input("Nhập tên của bạn: ")
 
