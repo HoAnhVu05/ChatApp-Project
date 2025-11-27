@@ -3,10 +3,16 @@ import threading
 import json
 import struct
 import datetime
+import ssl # Thêm thư viện bảo mật
+import os
 
 HOST = '127.0.0.1'
 PORT = 9999
 LOG_FILE = "chat_history.log"
+
+# --- CẤU HÌNH SSL ---
+CERT_FILE = 'server.crt'
+KEY_FILE = 'server.key'
 
 # --- CÁC HÀM HỖ TRỢ (CORE) ---
 def send_json(sock, data):
@@ -15,7 +21,7 @@ def send_json(sock, data):
         msg_len = struct.pack('!I', len(json_data))
         sock.sendall(msg_len + json_data)
     except Exception as e:
-        print(f"Lỗi gửi JSON: {e}")
+        print(f"Lỗi gửi: {e}")
 
 def recv_json(sock):
     def recvall(n):
@@ -42,7 +48,7 @@ def save_log(message):
     print(message)
 
 # --- LOGIC SERVER ---
-clients = {} # {socket: {"nick": "Ten", "room": "Lobby"}}
+clients = {} 
 
 def broadcast(message_dict, room_name=None, exclude_socket=None):
     for client_socket, info in clients.items():
@@ -58,8 +64,8 @@ def handle_client(client_socket):
         nickname = data['nickname']
         clients[client_socket] = {"nick": nickname, "room": "Lobby"}
         
-        save_log(f"[Kết nối] {nickname} vào Lobby.")
-        send_json(client_socket, {"type": "info", "msg": f"Chào mừng {nickname}!"})
+        save_log(f"[SECURE CONNECT] {nickname} vào Lobby.")
+        send_json(client_socket, {"type": "info", "msg": f"Chào {nickname}! Kết nối đã được MÃ HÓA SSL."})
         broadcast({"type": "info", "msg": f"{nickname} đã vào phòng."}, room_name="Lobby")
 
         while True:
@@ -81,18 +87,14 @@ def handle_client(client_socket):
                 }, room_name=current_room, exclude_socket=client_socket)
 
             elif cmd == 'file':
-                # Xử lý gửi file
-                filename = data['filename']
-                file_size = len(data['content']) # Độ dài chuỗi base64
-                save_log(f"[File] {my_name} gửi file '{filename}' ({file_size} bytes) vào {current_room}")
-                # Chuyển tiếp file cho cả phòng
                 broadcast({
                     "type": "file",
                     "sender": my_name,
-                    "filename": filename,
-                    "content": data['content'], # Chuỗi Base64
+                    "filename": data['filename'],
+                    "content": data['content'], 
                     "room": current_room
                 }, room_name=current_room, exclude_socket=client_socket)
+                save_log(f"[File] {my_name} gửi file được mã hóa trong {current_room}")
 
             elif cmd == 'join_room':
                 new_room = data['room_name']
@@ -100,20 +102,16 @@ def handle_client(client_socket):
                 clients[client_socket]['room'] = new_room
                 send_json(client_socket, {"type": "info", "msg": f"Đã vào phòng: {new_room}"})
                 broadcast({"type": "info", "msg": f"{my_name} vào phòng."}, room_name=new_room)
-                save_log(f"[Room] {my_name} chuyển sang {new_room}")
 
             elif cmd == 'private_msg':
                 recipient = data['recipient']
-                content = data['msg']
                 found = False
                 for sock, info in clients.items():
                     if info['nick'] == recipient:
-                        send_json(sock, {"type": "private", "sender": my_name, "msg": content})
-                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {content}"})
-                        found = True
-                        break
-                if not found:
-                    send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy '{recipient}'"})
+                        send_json(sock, {"type": "private", "sender": my_name, "msg": data['msg']})
+                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {data['msg']}"})
+                        found = True; break
+                if not found: send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy '{recipient}'"})
 
             elif cmd == 'list_users':
                 users = [info['nick'] for s, info in clients.items() if info['room'] == current_room]
@@ -126,17 +124,33 @@ def handle_client(client_socket):
             info = clients[client_socket]
             del clients[client_socket]
             broadcast({"type": "info", "msg": f"{info['nick']} thoát."}, room_name=info['room'])
-            save_log(f"[Thoát] {info['nick']} rời server.")
         client_socket.close()
 
-# --- MAIN ---
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind((HOST, PORT))
-server.listen()
-print(f"Server v3 (File Transfer) đang chạy trên {HOST}:{PORT}")
+# --- MAIN SERVER STARTUP ---
+# 1. Tạo socket TCP thường
+raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+raw_socket.bind((HOST, PORT))
+raw_socket.listen()
+
+# 2. Tạo lớp bảo vệ SSL
+context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
+    context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    print(f"--- SERVER SECURE (SSL/TLS) ĐANG CHẠY TRÊN {HOST}:{PORT} ---")
+else:
+    print(">>> LỖI: Thiếu file chứng chỉ! Hãy chạy 'py gen_cert.py' trước.")
+    exit()
 
 while True:
-    client, addr = server.accept()
-    t = threading.Thread(target=handle_client, args=(client,))
-    t.start()
+    try:
+        # Chấp nhận kết nối thường
+        client_raw, addr = raw_socket.accept()
+        # Nâng cấp lên kết nối bảo mật (Handshake)
+        client_ssl = context.wrap_socket(client_raw, server_side=True)
+        
+        print(f"Kết nối bảo mật từ: {addr}")
+        t = threading.Thread(target=handle_client, args=(client_ssl,))
+        t.start()
+    except Exception as e:
+        print(f"Lỗi kết nối: {e}")
