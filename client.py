@@ -281,19 +281,36 @@ class ChatClient:
         if not os.path.exists(file_path):
             print(f">>> Lỗi: File '{file_path}' không tồn tại.")
             return
-        if os.path.getsize(file_path) > 10 * 1024 * 1024: # Giới hạn 10MB
-            print(">>> Lỗi: File quá lớn (tối đa 10MB).")
-            return
-            
+        
         print(">>> Đang mã hóa và gửi file...")
         try:
+            # Kiểm tra kích thước file trước
+            file_size = os.path.getsize(file_path)
+            if file_size > 10 * 1024 * 1024:  # Giới hạn 10MB
+                print(">>> Lỗi: File quá lớn (tối đa 10MB).")
+                return
+            
             with open(file_path, "rb") as f:
-                encoded_data = base64.b64encode(f.read()).decode('utf-8')
+                file_data = f.read()
+            
+            # Mã hóa file
+            encoded_data = base64.b64encode(file_data).decode('utf-8')
             filename = os.path.basename(file_path)
+            
+            # Kiểm tra kích thước sau khi encode (base64 tăng ~33%)
+            if len(encoded_data) > 15 * 1024 * 1024:  # ~13.3MB base64
+                print(">>> Lỗi: File quá lớn sau khi mã hóa.")
+                return
+            
             self._send_json({"type": "file", "filename": filename, "content": encoded_data})
             print(">>> Đã gửi file thành công.")
+        except PermissionError:
+            print(f">>> Lỗi: Không có quyền đọc file '{file_path}'.")
+        except MemoryError:
+            print(f">>> Lỗi: File quá lớn, không đủ bộ nhớ để xử lý.")
         except Exception as e:
-            print(f">>> Lỗi khi đọc file: {e}")
+            print(f">>> Lỗi khi đọc/ghi file: {e}")
+            print(">>> Vui lòng thử lại hoặc kiểm tra file.")
 
     def _send_file_private(self, recipient, file_path):
         """Đọc, mã hóa và gửi file riêng cho một người."""
@@ -301,19 +318,36 @@ class ChatClient:
         if not os.path.exists(file_path):
             print(f">>> Lỗi: File '{file_path}' không tồn tại.")
             return
-        if os.path.getsize(file_path) > 10 * 1024 * 1024: # Giới hạn 10MB
-            print(">>> Lỗi: File quá lớn (tối đa 10MB).")
-            return
-            
+        
         print(f">>> Đang mã hóa và gửi file riêng cho {recipient}...")
         try:
+            # Kiểm tra kích thước file trước
+            file_size = os.path.getsize(file_path)
+            if file_size > 10 * 1024 * 1024:  # Giới hạn 10MB
+                print(">>> Lỗi: File quá lớn (tối đa 10MB).")
+                return
+            
             with open(file_path, "rb") as f:
-                encoded_data = base64.b64encode(f.read()).decode('utf-8')
+                file_data = f.read()
+            
+            # Mã hóa file
+            encoded_data = base64.b64encode(file_data).decode('utf-8')
             filename = os.path.basename(file_path)
+            
+            # Kiểm tra kích thước sau khi encode
+            if len(encoded_data) > 15 * 1024 * 1024:  # ~13.3MB base64
+                print(">>> Lỗi: File quá lớn sau khi mã hóa.")
+                return
+            
             self._send_json({"type": "private_file", "recipient": recipient, "filename": filename, "content": encoded_data})
             print(f">>> Đã gửi file riêng cho {recipient} thành công.")
+        except PermissionError:
+            print(f">>> Lỗi: Không có quyền đọc file '{file_path}'.")
+        except MemoryError:
+            print(f">>> Lỗi: File quá lớn, không đủ bộ nhớ để xử lý.")
         except Exception as e:
-            print(f">>> Lỗi khi đọc file: {e}")
+            print(f">>> Lỗi khi đọc/ghi file: {e}")
+            print(">>> Vui lòng thử lại hoặc kiểm tra file.")
 
     def start(self):
         """Khởi động client, kết nối và bắt đầu các luồng."""

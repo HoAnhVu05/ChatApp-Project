@@ -8,6 +8,7 @@ import struct
 import datetime
 import ssl
 import os
+import base64
 
 # --- CẤU HÌNH SERVER ---
 HOST = '127.0.0.1'
@@ -198,36 +199,96 @@ def handle_client(client_socket, client_address):
                     send_json(client_socket, {"type": "rooms", "rooms": rooms})
 
                 elif cmd == 'file':
-                    filename = data.get('filename', 'unknown')
-                    save_log(f"[FILE] {my_name} gửi file '{filename}' trong phòng {current_room}.")
-                    broadcast(data, current_room, client_socket)
-                    send_json(client_socket, {"type": "info", "msg": f"Đã gửi file '{filename}' tới tất cả thành viên trong phòng {current_room}."})
+                    try:
+                        filename = data.get('filename', 'unknown')
+                        file_content = data.get('content', '')
+                        
+                        # Kiểm tra dữ liệu file hợp lệ
+                        if not file_content:
+                            send_json(client_socket, {"type": "error", "msg": "File không có nội dung. Vui lòng thử lại."})
+                            continue
+                        
+                        # Kiểm tra kích thước file (giới hạn 10MB khi decode)
+                        try:
+                            decoded_size = len(base64.b64decode(file_content.encode('utf-8'), validate=True))
+                            if decoded_size > 10 * 1024 * 1024:  # 10MB
+                                send_json(client_socket, {"type": "error", "msg": f"File '{filename}' quá lớn (tối đa 10MB)."})
+                                continue
+                        except Exception as e:
+                            send_json(client_socket, {"type": "error", "msg": f"File '{filename}' có định dạng không hợp lệ (lỗi mã hóa)."})
+                            save_log(f"[LỖI FILE] {my_name} gửi file '{filename}' với dữ liệu không hợp lệ: {e}")
+                            continue
+                        
+                        # Kiểm tra kích thước JSON khi encode
+                        try:
+                            json_data = json.dumps(data).encode('utf-8')
+                            if len(json_data) > 20 * 1024 * 1024:  # Giới hạn 20MB cho JSON
+                                send_json(client_socket, {"type": "error", "msg": f"File '{filename}' quá lớn để gửi."})
+                                continue
+                        except Exception as e:
+                            send_json(client_socket, {"type": "error", "msg": f"Lỗi khi xử lý file '{filename}': Không thể mã hóa dữ liệu."})
+                            save_log(f"[LỖI FILE] {my_name} - Lỗi mã hóa file '{filename}': {e}")
+                            continue
+                        
+                        save_log(f"[FILE] {my_name} gửi file '{filename}' ({decoded_size // 1024}KB) trong phòng {current_room}.")
+                        broadcast(data, current_room, client_socket)
+                        send_json(client_socket, {"type": "info", "msg": f"Đã gửi file '{filename}' tới tất cả thành viên trong phòng {current_room}."})
+                    except Exception as e:
+                        save_log(f"[LỖI NGHIÊM TRỌNG] Lỗi khi xử lý file từ {my_name}: {e}")
+                        send_json(client_socket, {"type": "error", "msg": "Lỗi khi xử lý file. Vui lòng thử lại."})
 
                 elif cmd == 'private_file':
-                    recipient = data.get('recipient')
-                    filename = data.get('filename')
-                    if not recipient or not filename:
-                        send_json(client_socket, {"type": "error", "msg": "Thiếu thông tin. Sử dụng: /senddmfile \"<Tên>\" \"<ĐườngDẫn>\""})
-                        continue
-                    
-                    recipient_socket = None
-                    with clients_lock:
-                        for sock, info in clients.items():
-                            if info['nick'] == recipient:
-                                recipient_socket = sock
-                                break
-                    
-                    if recipient_socket:
-                        save_log(f"[FILE RIÊNG] {my_name} gửi file riêng cho {recipient}.")
-                        send_json(recipient_socket, {
-                            "type": "private_file",
-                            "sender": my_name,
-                            "filename": filename,
-                            "content": data.get('content', '')
-                        })
-                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Đã gửi file '{filename}' cho {recipient}."})
-                    else:
-                        send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy người dùng '{recipient}'."})
+                    try:
+                        recipient = data.get('recipient')
+                        filename = data.get('filename')
+                        file_content = data.get('content', '')
+                        
+                        if not recipient or not filename:
+                            send_json(client_socket, {"type": "error", "msg": "Thiếu thông tin. Sử dụng: /senddmfile \"<Tên>\" \"<ĐườngDẫn>\""})
+                            continue
+                        
+                        # Kiểm tra dữ liệu file hợp lệ
+                        if not file_content:
+                            send_json(client_socket, {"type": "error", "msg": "File không có nội dung. Vui lòng thử lại."})
+                            continue
+                        
+                        # Kiểm tra kích thước và định dạng file
+                        try:
+                            decoded_size = len(base64.b64decode(file_content.encode('utf-8'), validate=True))
+                            if decoded_size > 10 * 1024 * 1024:  # 10MB
+                                send_json(client_socket, {"type": "error", "msg": f"File '{filename}' quá lớn (tối đa 10MB)."})
+                                continue
+                        except Exception as e:
+                            send_json(client_socket, {"type": "error", "msg": f"File '{filename}' có định dạng không hợp lệ (lỗi mã hóa)."})
+                            save_log(f"[LỖI FILE RIÊNG] {my_name} gửi file '{filename}' với dữ liệu không hợp lệ: {e}")
+                            continue
+                        
+                        recipient_socket = None
+                        with clients_lock:
+                            for sock, info in clients.items():
+                                if info['nick'] == recipient:
+                                    recipient_socket = sock
+                                    break
+                        
+                        if recipient_socket:
+                            try:
+                                file_data = {
+                                    "type": "private_file",
+                                    "sender": my_name,
+                                    "filename": filename,
+                                    "content": file_content
+                                }
+                                save_log(f"[FILE RIÊNG] {my_name} gửi file riêng '{filename}' ({decoded_size // 1024}KB) cho {recipient}.")
+                                send_json(recipient_socket, file_data)
+                                send_json(client_socket, {"type": "info", "msg": f"[Mật] Đã gửi file '{filename}' cho {recipient}."})
+                            except Exception as e:
+                                save_log(f"[LỖI] Không thể gửi file riêng từ {my_name} tới {recipient}: {e}")
+                                send_json(client_socket, {"type": "error", "msg": f"Không thể gửi file. Người nhận có thể đã ngắt kết nối."})
+                        else:
+                            send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy người dùng '{recipient}'."})
+                    except Exception as e:
+                        save_log(f"[LỖI NGHIÊM TRỌNG] Lỗi khi xử lý file riêng từ {my_name}: {e}")
+                        send_json(client_socket, {"type": "error", "msg": "Lỗi khi xử lý file riêng. Vui lòng thử lại."})
 
                 elif cmd == 'ping':
                     send_json(client_socket, {"type": "pong"})
