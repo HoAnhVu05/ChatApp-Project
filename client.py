@@ -12,9 +12,9 @@ import ssl
 import time
 
 # --- CẤU HÌNH ---
-# THAY ĐỔI ĐỊA CHỈ VÀ CỔNG MÀ BẠN CÓ (ví dụ: từ playit.gg)
-HOST = 'learn-if.gl.at.ply.gg' # Mặc định là máy local, thay bằng địa chỉ public của bạn
-PORT = 60326          # Thay bằng cổng public của bạn
+
+HOST = 'learn-if.gl.at.ply.gg' 
+PORT = 60326          
 
 DOWNLOAD_DIR = "downloads"
 
