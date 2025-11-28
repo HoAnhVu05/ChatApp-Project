@@ -73,6 +73,19 @@ class ChatClient:
             print("\n[!] Mất kết nối tới server. Vui lòng khởi động lại ứng dụng.")
             self.shutdown_event.set() # Báo hiệu cho các luồng khác dừng lại
 
+    def _print_message(self, prefix, message):
+        """Hiển thị tin nhắn nhiều dòng một cách đẹp, giữ nguyên cấu trúc đoạn văn."""
+        lines = message.split('\n')
+        if len(lines) == 1:
+            # Tin nhắn một dòng - in bình thường
+            print(f"{prefix} {message}")
+        else:
+            # Tin nhắn nhiều dòng - in từng dòng với indent
+            print(f"{prefix}")
+            for line in lines:
+                # Giữ nguyên khoảng trắng và cấu trúc của từng dòng
+                print(f"  {line}")
+
     def _receive_loop(self):
         """Vòng lặp lắng nghe tin nhắn từ server."""
         while not self.shutdown_event.is_set():
@@ -88,9 +101,15 @@ class ChatClient:
                 sys.stdout.write('\r' + ' ' * 80 + '\r')
                 
                 if dtype == 'chat':
-                    print(f"[{data.get('room', 'Unknown')}] {data.get('sender', 'System')}: {data.get('msg', '')}")
+                    sender = data.get('sender', 'System')
+                    room = data.get('room', 'Unknown')
+                    msg_text = data.get('msg', '')
+                    # Hiển thị tin nhắn nhiều dòng một cách đẹp hơn
+                    self._print_message(f"[{room}] {sender}:", msg_text)
                 elif dtype == 'private':
-                    print(f">>> [MẬT] Từ {data.get('sender', 'System')}: {data.get('msg', '')}")
+                    sender = data.get('sender', 'System')
+                    msg_text = data.get('msg', '')
+                    self._print_message(f">>> [MẬT] Từ {sender}:", msg_text)
                 elif dtype == 'info':
                     print(f">>> [HỆ THỐNG]: {data.get('msg', '')}")
                 elif dtype == 'error':
@@ -386,10 +405,47 @@ class ChatClient:
         # 7. Đánh dấu sẵn sàng nhận input và bắt đầu vòng lặp
         self.ready_for_input.set()
         print(f"\n--- CHÀO MỪNG {self.nickname} ĐẾN VỚI SECURE CHAT --- (gõ /help để xem hướng dẫn)")
+        print("💡 Mẹo: Bạn có thể dán (paste) đoạn văn dài bằng Ctrl+Shift+V (Windows Terminal)")
+        print("         Hoặc gõ nhiều dòng - kết thúc bằng Ctrl+D (Linux/Mac) hoặc Ctrl+Z+Enter (Windows)\n")
         while not self.shutdown_event.is_set():
             try:
-                msg = input(f"{self.nickname}> ")
-                if msg:
+                # Nhập dòng đầu tiên
+                first_line = input(f"{self.nickname}> ")
+                if not first_line:
+                    continue
+                
+                first_line = first_line.rstrip()  # Giữ lại khoảng trắng ở đầu, bỏ ở cuối
+                
+                # Kiểm tra nếu là lệnh thì xử lý ngay
+                if first_line.strip().startswith('/'):
+                    self._handle_user_input(first_line.strip())
+                    continue
+                
+                # Nếu không phải lệnh, cho phép nhập nhiều dòng
+                lines = [first_line]
+                empty_line_count = 0
+                
+                while True:
+                    try:
+                        next_line = input()
+                        if not next_line.strip():  
+                            # Nếu có 2 dòng trống liên tiếp thì kết thúc
+                            empty_line_count += 1
+                            if empty_line_count >= 2:
+                                break
+                            lines.append(next_line)  # Vẫn thêm dòng trống vào để giữ format
+                        else:
+                            empty_line_count = 0  # Reset counter
+                            lines.append(next_line.rstrip())  # Giữ khoảng trắng đầu, bỏ cuối
+                    except (EOFError, KeyboardInterrupt):
+                        break
+                
+                # Gộp tất cả các dòng thành một tin nhắn, loại bỏ dòng trống cuối cùng nếu có
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                
+                msg = '\n'.join(lines)
+                if msg.strip():
                     self._handle_user_input(msg)
             except (KeyboardInterrupt, EOFError):
                 self.shutdown_event.set()
