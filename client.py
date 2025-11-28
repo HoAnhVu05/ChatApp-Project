@@ -13,8 +13,8 @@ import time
 
 # --- CẤU HÌNH ---
 # THAY ĐỔI ĐỊA CHỈ VÀ CỔNG MÀ BẠN CÓ (ví dụ: từ playit.gg)
-HOST = '127.0.0.1' # Mặc định là máy local, thay bằng địa chỉ public của bạn
-PORT = 9999          # Thay bằng cổng public của bạn
+HOST = 'learn-if.gl.at.ply.gg' # Mặc định là máy local, thay bằng địa chỉ public của bạn
+PORT = 60326          # Thay bằng cổng public của bạn
 
 DOWNLOAD_DIR = "downloads"
 

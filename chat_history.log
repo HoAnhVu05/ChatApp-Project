@@ -5,3 +5,18 @@
 [2025-11-28 16:03:07] [SECURE CONNECT] tân vào Lobby.
 [2025-11-28 16:11:44] [SECURE CONNECT] Vũ vào Lobby.
 [2025-11-28 16:14:35] [SECURE CONNECT] Vũ vào Lobby.
+[2025-11-28 16:24:45] [SECURE CONNECT] Vũ vào Lobby.
+[2025-11-28 16:27:59] [SECURE CONNECT] Vũ vào Lobby.
+[2025-11-28 16:31:03] [SECURE CONNECT] Vũ vào Lobby.
+[2025-11-28 16:31:26] [SECURE CONNECT] Hiệu vào Lobby.
+[2025-11-28 16:36:00] --- SERVER CHAT AN TOÀN ĐANG CHẠY TRÊN 127.0.0.1:9999 ---
+[2025-11-28 16:37:58] Chấp nhận kết nối thô từ ('127.0.0.1', 10112)...
+[2025-11-28 16:37:58] [KẾT NỐI] Vũ từ ('127.0.0.1', 10112) đã vào Lobby.
+[2025-11-28 16:39:07] --- SERVER SECURE (SSL/TLS) ĐANG SẴN SÀNG TRÊN 127.0.0.1:9999 (cert loaded) ---
+[2025-11-28 16:39:07] --- SERVER CHAT AN TOÀN ĐANG CHẠY TRÊN 127.0.0.1:9999 ---
+[2025-11-28 16:39:33] Chấp nhận kết nối thô từ ('127.0.0.1', 10149)...
+[2025-11-28 16:39:33] [KẾT NỐI] Vũ từ ('127.0.0.1', 10149) đã vào Lobby.
+[2025-11-28 16:40:15] Chấp nhận kết nối thô từ ('127.24.221.112', 10158)...
+[2025-11-28 16:40:15] Lỗi SSL Handshake từ ('127.24.221.112', 10158): [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1129). Có thể do client kết nối không dùng SSL.
+[2025-11-28 16:40:36] Chấp nhận kết nối thô từ ('127.0.0.1', 10163)...
+[2025-11-28 16:40:36] [KẾT NỐI] Vuuuu từ ('127.0.0.1', 10163) đã vào Lobby.
