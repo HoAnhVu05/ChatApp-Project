@@ -140,10 +140,87 @@ class ChatClient:
             # Dùng is_set() với timeout để luồng có thể dừng nhanh hơn
             self.shutdown_event.wait(30) 
 
+    def _parse_dm_command(self, msg):
+        """Parse lệnh /dm với hỗ trợ tên có nhiều từ (có thể dùng dấu ngoặc kép)."""
+        # Bỏ phần lệnh
+        content = msg[3:].strip()  # Bỏ "/dm"
+        
+        if not content:
+            return None, None
+        
+        # Kiểm tra nếu có dấu ngoặc kép ở đầu (tên có nhiều từ)
+        if content.startswith('"'):
+            # Tìm dấu ngoặc kép đóng đầu tiên
+            end_quote = content.find('"', 1)
+            if end_quote > 0:
+                recipient = content[1:end_quote]
+                message = content[end_quote + 1:].strip()
+                if message:
+                    return recipient, message
+        elif content.startswith("'"):
+            # Tìm dấu ngoặc kép đơn đóng đầu tiên
+            end_quote = content.find("'", 1)
+            if end_quote > 0:
+                recipient = content[1:end_quote]
+                message = content[end_quote + 1:].strip()
+                if message:
+                    return recipient, message
+        else:
+            # Không có dấu ngoặc kép, parse bình thường: từ đầu tiên là recipient, phần còn lại là message
+            parts = content.split(None, 1)  # Chia thành 2 phần: recipient và message
+            if len(parts) == 2:
+                return parts[0], parts[1]
+        
+        return None, None
+    
+    def _parse_senddmfile_command(self, msg):
+        """Parse lệnh /senddmfile với hỗ trợ tên và đường dẫn có nhiều từ."""
+        # Bỏ phần lệnh
+        content = msg[12:].strip()  # Bỏ "/senddmfile"
+        
+        if not content:
+            return None, None
+        
+        recipient = None
+        file_path = None
+        
+        # Parse recipient (có thể có dấu ngoặc kép hoặc không)
+        if content.startswith('"'):
+            end_quote = content.find('"', 1)
+            if end_quote > 0:
+                recipient = content[1:end_quote]
+                content = content[end_quote + 1:].strip()
+        elif content.startswith("'"):
+            end_quote = content.find("'", 1)
+            if end_quote > 0:
+                recipient = content[1:end_quote]
+                content = content[end_quote + 1:].strip()
+        else:
+            # Không có dấu ngoặc kép, từ đầu tiên là recipient
+            parts = content.split(None, 1)
+            if len(parts) >= 1:
+                recipient = parts[0]
+                if len(parts) > 1:
+                    content = parts[1].strip()
+                else:
+                    content = ""
+        
+        if not recipient:
+            return None, None
+        
+        # Parse file_path (phần còn lại, có thể có dấu ngoặc kép)
+        if content:
+            file_path = content.strip('"\'')
+        
+        if recipient and file_path:
+            return recipient, file_path
+        
+        return None, None
+
     def _handle_user_input(self, msg):
         """Phân tích và xử lý input từ người dùng."""
         if msg.startswith('/'):
-            parts = msg.split(" ", 2)
+            parts = msg.split(" ", 1)
             command = parts[0].lower()
 
             if command == '/quit':
@@ -151,33 +228,44 @@ class ChatClient:
             elif command == '/help':
                 print("\n--- HƯỚNG DẪN (SECURE CHAT) ---")
                 print("/join <TênPhòng>           : Chuyển phòng")
-                print("/dm <Tên> <TinNhắn>        : Nhắn tin riêng")
+                print("/dm \"<Tên>\" <TinNhắn>      : Nhắn tin riêng (dùng \"\" nếu tên có nhiều từ)")
                 print("/sendfile <ĐườngDẫn>       : Gửi file cho mọi người trong phòng")
-                print("/senddmfile <Tên> <ĐườngDẫn> : Gửi file riêng cho một người")
+                print("/senddmfile \"<Tên>\" \"<ĐườngDẫn>\" : Gửi file riêng (dùng \"\" nếu có khoảng trắng)")
                 print("/list                      : Xem danh sách người dùng trong phòng")
                 print("/rooms                     : Xem danh sách phòng hiện có")
                 print("/quit                      : Thoát chương trình")
+                print("\nLưu ý: Trong terminal Windows, dán (paste) dùng Ctrl+Shift+V hoặc chuột phải")
                 print("-------------------------------")
             elif command == '/join':
-                if len(parts) > 1: self._send_json({"type": "join_room", "room_name": parts[1]})
-                else: print("Sử dụng: /join <TênPhòng>")
+                if len(parts) > 1:
+                    room_name = parts[1].strip().strip('"\'')
+                    self._send_json({"type": "join_room", "room_name": room_name})
+                else:
+                    print("Sử dụng: /join <TênPhòng>")
             elif command == '/dm':
-                if len(parts) == 3: self._send_json({"type": "private_msg", "recipient": parts[1], "msg": parts[2]})
-                else: print("Sử dụng: /dm <TênNgườiNhận> <TinNhắn>")
+                recipient, message = self._parse_dm_command(msg)
+                if recipient and message:
+                    self._send_json({"type": "private_msg", "recipient": recipient, "msg": message})
+                else:
+                    print("Sử dụng: /dm \"<TênNgườiNhận>\" <TinNhắn>")
+                    print("Ví dụ: /dm \"Con Chim\" Chào bạn")
             elif command == '/list':
                 self._send_json({"type": "list_users"})
             elif command == '/rooms':
                 self._send_json({"type": "list_rooms"})
             elif command == '/sendfile':
-                if len(parts) > 1: self._send_file(parts[1])
-                else: print("Sử dụng: /sendfile <ĐườngDẫnTớiFile>")
+                if len(parts) > 1:
+                    file_path = parts[1].strip().strip('"\'')
+                    self._send_file(file_path)
+                else:
+                    print("Sử dụng: /sendfile <ĐườngDẫnTớiFile>")
             elif command == '/senddmfile':
-                if len(parts) >= 3:
-                    recipient = parts[1]
-                    file_path = parts[2]
+                recipient, file_path = self._parse_senddmfile_command(msg)
+                if recipient and file_path:
                     self._send_file_private(recipient, file_path)
                 else:
-                    print("Sử dụng: /senddmfile <TênNgườiNhận> <ĐườngDẫnTớiFile>")
+                    print("Sử dụng: /senddmfile \"<TênNgườiNhận>\" \"<ĐườngDẫnTớiFile>\"")
+                    print("Ví dụ: /senddmfile \"Con Chim\" \"C:\\Users\\file.txt\"")
             else:
                 print(f"Lệnh '{command}' không hợp lệ. Gõ /help để xem danh sách lệnh.")
         else:

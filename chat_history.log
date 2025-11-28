@@ -20,3 +20,5 @@
 [2025-11-28 16:40:15] Lỗi SSL Handshake từ ('127.24.221.112', 10158): [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1129). Có thể do client kết nối không dùng SSL.
 [2025-11-28 16:40:36] Chấp nhận kết nối thô từ ('127.0.0.1', 10163)...
 [2025-11-28 16:40:36] [KẾT NỐI] Vuuuu từ ('127.0.0.1', 10163) đã vào Lobby.
+[2025-11-28 17:07:32] --- SERVER SECURE (SSL/TLS) ĐANG SẴN SÀNG TRÊN 127.0.0.1:9999 (cert loaded) ---
+[2025-11-28 17:07:32] --- SERVER CHAT AN TOÀN ĐANG CHẠY TRÊN 127.0.0.1:9999 ---
