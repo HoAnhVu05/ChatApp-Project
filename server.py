@@ -112,7 +112,7 @@ def handle_client(client_socket, client_address):
 
         # Gửi thông báo chào mừng và thông báo cho mọi người
         save_log(f"[KẾT NỐI] {nickname} từ {client_address} đã vào Lobby.")
-        send_json(client_socket, {"type": "info", "msg": f"Chào {nickname}! Kết nối đã được mã hóa."})
+        send_json(client_socket, {"type": "info", "msg": f"Chào {nickname}! Kết nối đã được MÃ HÓA SSL."})       
         broadcast({"type": "info", "msg": f"{nickname} đã vào phòng."}, "Lobby", client_socket)
 
         # 2. Vòng lặp xử lý tin nhắn
@@ -204,6 +204,8 @@ def main():
     # 2. Cấu hình SSL context
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+    # Hiển thị thông báo rằng server đã nạp chứng chỉ và sẽ chạy ở chế độ SSL/TLS
+    save_log(f"--- SERVER SECURE (SSL/TLS) ĐANG SẴN SÀNG TRÊN {HOST}:{PORT} (cert loaded) ---")
 
     # 3. Khởi tạo socket
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
