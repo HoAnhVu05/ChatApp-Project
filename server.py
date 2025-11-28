@@ -51,10 +51,17 @@ def save_log(message):
 clients = {} 
 
 def broadcast(message_dict, room_name=None, exclude_socket=None):
-    for client_socket, info in clients.items():
+    # --- SỬA LỖI TẠI ĐÂY: Thêm list() bao quanh clients.items() ---
+    # Việc này tạo ra một bản copy danh sách để duyệt, tránh lỗi khi có người thoát đột ngột
+    for client_socket, info in list(clients.items()):
         if client_socket != exclude_socket:
-            if room_name is None or info['room'] == room_name:
-                send_json(client_socket, message_dict)
+            try:
+                if room_name is None or info['room'] == room_name:
+                    send_json(client_socket, message_dict)
+            except:
+                # Nếu gửi lỗi (do socket chết), ta có thể bỏ qua, 
+                # việc xóa socket sẽ do luồng handle_client lo
+                pass
 
 def handle_client(client_socket):
     try:
