@@ -101,6 +101,10 @@ class ChatClient:
                     continue # Bỏ qua, chỉ dùng để giữ kết nối
                 elif dtype == 'file':
                     self._save_file(data)
+                elif dtype == 'private_file':
+                    sender = data.get('sender', 'System')
+                    print(f">>> [FILE RIÊNG] {sender} đã gửi file riêng cho bạn.")
+                    self._save_file(data)
                 
                 # In lại tên người dùng để họ tiếp tục gõ
                 sys.stdout.write(f"{self.nickname}> ")
@@ -141,8 +145,15 @@ class ChatClient:
             if command == '/quit':
                 self.shutdown_event.set()
             elif command == '/help':
-                print("\n--- HƯỚNG DẪN (SECURE CHAT) ---\
-""/join <TênPhòng>      : Chuyển phòng\n""/dm <Tên> <TinNhắn>   : Nhắn tin riêng\n""/sendfile <ĐườngDẫn>  : Gửi file cho mọi người trong phòng\n""/list                 : Xem danh sách người dùng trong phòng\n""/rooms                : Xem danh sách phòng hiện có\n""/quit                 : Thoát chương trình\n""-------------------------------")
+                print("\n--- HƯỚNG DẪN (SECURE CHAT) ---")
+                print("/join <TênPhòng>           : Chuyển phòng")
+                print("/dm <Tên> <TinNhắn>        : Nhắn tin riêng")
+                print("/sendfile <ĐườngDẫn>       : Gửi file cho mọi người trong phòng")
+                print("/senddmfile <Tên> <ĐườngDẫn> : Gửi file riêng cho một người")
+                print("/list                      : Xem danh sách người dùng trong phòng")
+                print("/rooms                     : Xem danh sách phòng hiện có")
+                print("/quit                      : Thoát chương trình")
+                print("-------------------------------")
             elif command == '/join':
                 if len(parts) > 1: self._send_json({"type": "join_room", "room_name": parts[1]})
                 else: print("Sử dụng: /join <TênPhòng>")
@@ -156,6 +167,13 @@ class ChatClient:
             elif command == '/sendfile':
                 if len(parts) > 1: self._send_file(parts[1])
                 else: print("Sử dụng: /sendfile <ĐườngDẫnTớiFile>")
+            elif command == '/senddmfile':
+                if len(parts) >= 3:
+                    recipient = parts[1]
+                    file_path = parts[2]
+                    self._send_file_private(recipient, file_path)
+                else:
+                    print("Sử dụng: /senddmfile <TênNgườiNhận> <ĐườngDẫnTớiFile>")
             else:
                 print(f"Lệnh '{command}' không hợp lệ. Gõ /help để xem danh sách lệnh.")
         else:
@@ -179,6 +197,26 @@ class ChatClient:
             filename = os.path.basename(file_path)
             self._send_json({"type": "file", "filename": filename, "content": encoded_data})
             print(">>> Đã gửi file thành công.")
+        except Exception as e:
+            print(f">>> Lỗi khi đọc file: {e}")
+
+    def _send_file_private(self, recipient, file_path):
+        """Đọc, mã hóa và gửi file riêng cho một người."""
+        file_path = file_path.strip('"')
+        if not os.path.exists(file_path):
+            print(f">>> Lỗi: File '{file_path}' không tồn tại.")
+            return
+        if os.path.getsize(file_path) > 10 * 1024 * 1024: # Giới hạn 10MB
+            print(">>> Lỗi: File quá lớn (tối đa 10MB).")
+            return
+            
+        print(f">>> Đang mã hóa và gửi file riêng cho {recipient}...")
+        try:
+            with open(file_path, "rb") as f:
+                encoded_data = base64.b64encode(f.read()).decode('utf-8')
+            filename = os.path.basename(file_path)
+            self._send_json({"type": "private_file", "recipient": recipient, "filename": filename, "content": encoded_data})
+            print(f">>> Đã gửi file riêng cho {recipient} thành công.")
         except Exception as e:
             print(f">>> Lỗi khi đọc file: {e}")
 

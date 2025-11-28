@@ -178,6 +178,30 @@ def handle_client(client_socket, client_address):
                     save_log(f"[FILE] {my_name} gửi file trong phòng {current_room}.")
                     broadcast(data, current_room, client_socket)
 
+                elif cmd == 'private_file':
+                    recipient = data.get('recipient')
+                    filename = data.get('filename')
+                    if not recipient or not filename: continue
+                    
+                    recipient_socket = None
+                    with clients_lock:
+                        for sock, info in clients.items():
+                            if info['nick'] == recipient:
+                                recipient_socket = sock
+                                break
+                    
+                    if recipient_socket:
+                        save_log(f"[FILE RIÊNG] {my_name} gửi file riêng cho {recipient}.")
+                        send_json(recipient_socket, {
+                            "type": "private_file",
+                            "sender": my_name,
+                            "filename": filename,
+                            "content": data.get('content', '')
+                        })
+                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Đã gửi file '{filename}' cho {recipient}."})
+                    else:
+                        send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy người dùng '{recipient}'."})
+
                 elif cmd == 'ping':
                     send_json(client_socket, {"type": "pong"})
 
