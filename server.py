@@ -3,7 +3,7 @@ import threading
 import json
 import struct
 import datetime
-import ssl # Thêm thư viện bảo mật
+import ssl
 import os
 
 HOST = '127.0.0.1'
@@ -14,7 +14,7 @@ LOG_FILE = "chat_history.log"
 CERT_FILE = 'server.crt'
 KEY_FILE = 'server.key'
 
-# --- CÁC HÀM HỖ TRỢ (CORE) ---
+# --- CÁC HÀM HỖ TRỢ ---
 def send_json(sock, data):
     try:
         json_data = json.dumps(data).encode('utf-8')
@@ -51,17 +51,15 @@ def save_log(message):
 clients = {} 
 
 def broadcast(message_dict, room_name=None, exclude_socket=None):
-    # --- SỬA LỖI TẠI ĐÂY: Thêm list() bao quanh clients.items() ---
-    # Việc này tạo ra một bản copy danh sách để duyệt, tránh lỗi khi có người thoát đột ngột
+    # --- FIX QUAN TRỌNG: Dùng list(clients.items()) để tạo bản sao danh sách ---
+    # Giúp tránh lỗi "dictionary changed size" khi có người thoát đột ngột
     for client_socket, info in list(clients.items()):
         if client_socket != exclude_socket:
             try:
                 if room_name is None or info['room'] == room_name:
                     send_json(client_socket, message_dict)
             except:
-                # Nếu gửi lỗi (do socket chết), ta có thể bỏ qua, 
-                # việc xóa socket sẽ do luồng handle_client lo
-                pass
+                pass # Socket lỗi sẽ được xử lý ở phần handle_client
 
 def handle_client(client_socket):
     try:
@@ -80,6 +78,9 @@ def handle_client(client_socket):
             if not data: break
 
             cmd = data['type']
+            # Kiểm tra xem client còn trong danh sách không trước khi xử lý
+            if client_socket not in clients: break 
+            
             current_room = clients[client_socket]['room']
             my_name = clients[client_socket]['nick']
 
@@ -101,7 +102,7 @@ def handle_client(client_socket):
                     "content": data['content'], 
                     "room": current_room
                 }, room_name=current_room, exclude_socket=client_socket)
-                save_log(f"[File] {my_name} gửi file được mã hóa trong {current_room}")
+                save_log(f"[File] {my_name} gửi file trong {current_room}")
 
             elif cmd == 'join_room':
                 new_room = data['room_name']
@@ -113,7 +114,8 @@ def handle_client(client_socket):
             elif cmd == 'private_msg':
                 recipient = data['recipient']
                 found = False
-                for sock, info in clients.items():
+                # Dùng list() ở đây nữa cho an toàn
+                for sock, info in list(clients.items()):
                     if info['nick'] == recipient:
                         send_json(sock, {"type": "private", "sender": my_name, "msg": data['msg']})
                         send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {data['msg']}"})
@@ -121,26 +123,34 @@ def handle_client(client_socket):
                 if not found: send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy '{recipient}'"})
 
             elif cmd == 'list_users':
-                users = [info['nick'] for s, info in clients.items() if info['room'] == current_room]
+                # Dùng list() để tránh lỗi
+                users = [info['nick'] for s, info in list(clients.items()) if info['room'] == current_room]
                 send_json(client_socket, {"type": "info", "msg": f"Danh sách {current_room}: {', '.join(users)}"})
 
-    except:
-        pass
+    except Exception as e:
+        print(f"Lỗi xử lý client: {e}")
     finally:
+        # Xử lý ngắt kết nối an toàn
         if client_socket in clients:
-            info = clients[client_socket]
-            del clients[client_socket]
-            broadcast({"type": "info", "msg": f"{info['nick']} thoát."}, room_name=info['room'])
+            try:
+                info = clients[client_socket]
+                del clients[client_socket] # Xóa khỏi danh sách trước
+                broadcast({"type": "info", "msg": f"{info['nick']} thoát."}, room_name=info['room'])
+            except:
+                pass
         client_socket.close()
 
-# --- MAIN SERVER STARTUP ---
-# 1. Tạo socket TCP thường
+# --- MAIN ---
 raw_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 raw_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-raw_socket.bind((HOST, PORT))
+try:
+    raw_socket.bind((HOST, PORT))
+except OSError:
+    print(f"LỖI: Cổng {PORT} đang bị chiếm dụng. Hãy tắt server cũ hoặc đổi cổng.")
+    exit()
+
 raw_socket.listen()
 
-# 2. Tạo lớp bảo vệ SSL
 context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
 if os.path.exists(CERT_FILE) and os.path.exists(KEY_FILE):
     context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
@@ -151,13 +161,14 @@ else:
 
 while True:
     try:
-        # Chấp nhận kết nối thường
         client_raw, addr = raw_socket.accept()
-        # Nâng cấp lên kết nối bảo mật (Handshake)
-        client_ssl = context.wrap_socket(client_raw, server_side=True)
-        
-        print(f"Kết nối bảo mật từ: {addr}")
-        t = threading.Thread(target=handle_client, args=(client_ssl,))
-        t.start()
+        try:
+            client_ssl = context.wrap_socket(client_raw, server_side=True)
+            print(f"Kết nối bảo mật từ: {addr}")
+            t = threading.Thread(target=handle_client, args=(client_ssl,))
+            t.start()
+        except ssl.SSLError as e:
+            print(f"Lỗi SSL (Có thể do ai đó kết nối không mã hóa): {e}")
+            client_raw.close()
     except Exception as e:
-        print(f"Lỗi kết nối: {e}")
+        print(f"Lỗi chấp nhận kết nối: {e}")
