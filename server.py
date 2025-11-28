@@ -39,38 +39,67 @@ def save_log(message):
 
 def send_json(sock, data):
     """Mã hóa dữ liệu (dict) thành JSON, đóng gói và gửi đi."""
+    if sock is None:
+        return False
     try:
         json_data = json.dumps(data).encode('utf-8')
+        # Kiểm tra kích thước JSON trước khi gửi (giới hạn 50MB để tránh crash)
+        if len(json_data) > 50 * 1024 * 1024:
+            return False
         msg_len = struct.pack('!I', len(json_data))
         sock.sendall(msg_len + json_data)
+        return True
+    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
+        # Client đã ngắt kết nối - đây là lỗi bình thường
+        return False
     except Exception as e:
-        # Lỗi này thường xảy ra khi client đã ngắt kết nối
-        # save_log(f"Lỗi gửi tin đến {sock.getpeername()}: {e}")
-        pass
+        # Các lỗi khác - không log để tránh spam log
+        return False
 
 def recv_json(sock):
     """Nhận, giải mã và trả về dữ liệu JSON từ socket."""
     try:
         # Đọc 4 bytes đầu tiên để biết độ dài của tin nhắn
         raw_msglen = sock.recv(4)
-        if not raw_msglen:
+        if not raw_msglen or len(raw_msglen) < 4:
             return None
         msglen = struct.unpack('!I', raw_msglen)[0]
 
-        # Nhận đủ dữ liệu dựa trên độ dài đã biết
+        # Kiểm tra kích thước hợp lệ để tránh crash (giới hạn 100MB)
+        if msglen > 100 * 1024 * 1024:
+            return None
+
+        # Nhận đủ dữ liệu dựa trên độ dài đã biết (với timeout để tránh block)
         data = b''
-        while len(data) < msglen:
-            packet = sock.recv(msglen - len(data))
-            if not packet:
-                return None
-            data += packet
+        timeout_count = 0
+        max_timeout = 1000  # Tối đa 1000 lần thử
         
-        return json.loads(data.decode('utf-8'))
-    except (struct.error, json.JSONDecodeError):
+        while len(data) < msglen and timeout_count < max_timeout:
+            packet = sock.recv(min(msglen - len(data), 8192))  # Đọc từng chunk 8KB
+            if not packet:
+                timeout_count += 1
+                if timeout_count >= 10:  # Sau 10 lần không nhận được dữ liệu
+                    return None
+                continue
+            data += packet
+            timeout_count = 0  # Reset timeout khi nhận được dữ liệu
+        
+        if len(data) < msglen:
+            # Không nhận đủ dữ liệu
+            return None
+        
+        # Giải mã JSON
+        decoded_data = data.decode('utf-8')
+        return json.loads(decoded_data)
+        
+    except (struct.error, json.JSONDecodeError, UnicodeDecodeError):
         # Lỗi xảy ra nếu dữ liệu nhận được không hợp lệ
         return None
+    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, OSError):
+        # Client đã ngắt kết nối
+        return None
     except Exception:
-        # Các lỗi khác (ví dụ: connection reset)
+        # Các lỗi khác (ví dụ: timeout, memory error)
         return None
 
 # --- XỬ LÝ LOGIC CHÍNH ---
@@ -81,10 +110,22 @@ def broadcast(message_dict, room_name=None, exclude_socket=None):
         # Tạo một bản sao của danh sách client để tránh lỗi khi dict thay đổi kích thước
         current_clients = list(clients.items())
     
+    # Gửi đến từng client một cách an toàn, lỗi ở một client không làm ảnh hưởng các client khác
     for client_socket, info in current_clients:
         if client_socket != exclude_socket:
             if room_name is None or info['room'] == room_name:
-                send_json(client_socket, message_dict)
+                try:
+                    send_json(client_socket, message_dict)
+                except Exception as e:
+                    # Lỗi gửi đến một client không làm ảnh hưởng các client khác
+                    # Chỉ log lỗi nhưng không throw exception
+                    try:
+                        peer_info = client_socket.getpeername()
+                        save_log(f"[LỖI BROADCAST] Không thể gửi đến {peer_info}: {e}")
+                    except:
+                        pass
+                    # Tiếp tục gửi đến các client khác
+                    continue
 
 def handle_client(client_socket, client_address):
     """Xử lý toàn bộ logic cho một client: đăng nhập, nhận và xử lý tin nhắn."""
@@ -118,9 +159,13 @@ def handle_client(client_socket, client_address):
 
         # 2. Vòng lặp xử lý tin nhắn
         while True:
-            data = recv_json(client_socket)
-            if data is None:
-                break # Client đã ngắt kết nối
+            try:
+                data = recv_json(client_socket)
+                if data is None:
+                    break # Client đã ngắt kết nối
+            except Exception as e:
+                save_log(f"[LỖI] Lỗi khi nhận dữ liệu từ {nickname}: {e}")
+                break
 
             try:
                 # Lấy thông tin người gửi và phòng hiện tại một cách an toàn
@@ -231,8 +276,18 @@ def handle_client(client_socket, client_address):
                             continue
                         
                         save_log(f"[FILE] {my_name} gửi file '{filename}' ({decoded_size // 1024}KB) trong phòng {current_room}.")
-                        broadcast(data, current_room, client_socket)
-                        send_json(client_socket, {"type": "info", "msg": f"Đã gửi file '{filename}' tới tất cả thành viên trong phòng {current_room}."})
+                        
+                        # Broadcast file một cách an toàn
+                        try:
+                            broadcast(data, current_room, client_socket)
+                        except Exception as e:
+                            save_log(f"[LỖI] Lỗi khi broadcast file '{filename}': {e}")
+                        
+                        # Gửi thông báo xác nhận cho người gửi
+                        try:
+                            send_json(client_socket, {"type": "info", "msg": f"Đã gửi file '{filename}' tới tất cả thành viên trong phòng {current_room}."})
+                        except:
+                            pass
                     except Exception as e:
                         save_log(f"[LỖI NGHIÊM TRỌNG] Lỗi khi xử lý file từ {my_name}: {e}")
                         send_json(client_socket, {"type": "error", "msg": "Lỗi khi xử lý file. Vui lòng thử lại."})
