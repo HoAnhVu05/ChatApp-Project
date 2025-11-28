@@ -168,6 +168,12 @@ def handle_client(client_socket, client_address):
                         users_in_room = [info['nick'] for info in clients.values() if info['room'] == current_room]
                     send_json(client_socket, {"type": "info", "msg": f"Thành viên trong {current_room}: {', '.join(users_in_room)}"})
 
+                elif cmd == 'list_rooms':
+                    # Trả về danh sách các phòng hiện có (unique)
+                    with clients_lock:
+                        rooms = sorted({info['room'] for info in clients.values()})
+                    send_json(client_socket, {"type": "rooms", "rooms": rooms})
+
                 elif cmd == 'file':
                     save_log(f"[FILE] {my_name} gửi file trong phòng {current_room}.")
                     broadcast(data, current_room, client_socket)

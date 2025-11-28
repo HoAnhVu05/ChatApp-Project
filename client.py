@@ -94,6 +94,9 @@ class ChatClient:
                     print(f">>> [LỖI]: {data.get('msg', '')}")
                     if "Tên" in data.get('msg', ''): # Nếu lỗi do trùng tên -> thoát
                         self.shutdown_event.set()
+                elif dtype == 'rooms':
+                    rooms = data.get('rooms', [])
+                    print(f"\n>>> [PHÒNG HIỆN CÓ]: {', '.join(rooms) if rooms else '(không có phòng nào)'}")
                 elif dtype == 'pong':
                     continue # Bỏ qua, chỉ dùng để giữ kết nối
                 elif dtype == 'file':
@@ -139,7 +142,7 @@ class ChatClient:
                 self.shutdown_event.set()
             elif command == '/help':
                 print("\n--- HƯỚNG DẪN (SECURE CHAT) ---\
-""/join <TênPhòng>      : Chuyển phòng\n""/dm <Tên> <TinNhắn>   : Nhắn tin riêng\n""/sendfile <ĐườngDẫn>  : Gửi file cho mọi người trong phòng\n""/list                 : Xem danh sách người dùng trong phòng\n""/quit                 : Thoát chương trình\n""-------------------------------")
+""/join <TênPhòng>      : Chuyển phòng\n""/dm <Tên> <TinNhắn>   : Nhắn tin riêng\n""/sendfile <ĐườngDẫn>  : Gửi file cho mọi người trong phòng\n""/list                 : Xem danh sách người dùng trong phòng\n""/rooms                : Xem danh sách phòng hiện có\n""/quit                 : Thoát chương trình\n""-------------------------------")
             elif command == '/join':
                 if len(parts) > 1: self._send_json({"type": "join_room", "room_name": parts[1]})
                 else: print("Sử dụng: /join <TênPhòng>")
@@ -148,6 +151,8 @@ class ChatClient:
                 else: print("Sử dụng: /dm <TênNgườiNhận> <TinNhắn>")
             elif command == '/list':
                 self._send_json({"type": "list_users"})
+            elif command == '/rooms':
+                self._send_json({"type": "list_rooms"})
             elif command == '/sendfile':
                 if len(parts) > 1: self._send_file(parts[1])
                 else: print("Sử dụng: /sendfile <ĐườngDẫnTớiFile>")
