@@ -13,6 +13,8 @@ PORT = 60326                    # <-- THAY CỔNG CỦA BẠN
 
 if not os.path.exists("downloads"): os.makedirs("downloads")
 
+import time
+
 # --- CÁC HÀM HỖ TRỢ ---
 def send_json(sock, data):
     try:
@@ -52,6 +54,7 @@ def receive_messages(client_socket):
             elif dtype == 'private': print(f"\n>>> [MẬT] Từ {data['sender']}: {data['msg']}")
             elif dtype == 'info': print(f"\n>>> [HỆ THỐNG]: {data['msg']}")
             elif dtype == 'error': print(f"\n>>> [LỖI]: {data['msg']}")
+            elif dtype == 'pong': continue # Bỏ qua tin nhắn pong
             elif dtype == 'file':
                 filename = data['filename']
                 file_content = base64.b64decode(data['content'])
@@ -59,6 +62,14 @@ def receive_messages(client_socket):
                 with open(filepath, "wb") as f: f.write(file_content)
                 print(f"\n>>> [FILE] {data['sender']} gửi '{filename}'. Đã lưu.")
         except: break
+
+def send_ping(client_socket):
+    while True:
+        try:
+            send_json(client_socket, {"type": "ping"})
+            time.sleep(30)
+        except:
+            break
 
 def send_messages(client_socket):
     while True:
@@ -126,5 +137,9 @@ except Exception as e:
 recv_thread = threading.Thread(target=receive_messages, args=(client,))
 recv_thread.daemon = True
 recv_thread.start()
+
+ping_thread = threading.Thread(target=send_ping, args=(client,))
+ping_thread.daemon = True
+ping_thread.start()
 
 send_messages(client)

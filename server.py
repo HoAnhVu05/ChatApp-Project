@@ -57,73 +57,100 @@ def broadcast(message_dict, room_name=None, exclude_socket=None):
                 send_json(client_socket, message_dict)
 
 def handle_client(client_socket):
+    nickname = None
     try:
         data = recv_json(client_socket)
-        if not data or data['type'] != 'login': return
+        if not data or data.get('type') != 'login':
+            return
         
         nickname = data['nickname']
+        # Kiểm tra trùng tên
+        for sock, info in clients.items():
+            if info['nick'] == nickname:
+                send_json(client_socket, {"type": "error", "msg": f"Tên '{nickname}' đã có người sử dụng."})
+                return # Ngắt kết nối nếu trùng tên
+
         clients[client_socket] = {"nick": nickname, "room": "Lobby"}
         
         save_log(f"[SECURE CONNECT] {nickname} vào Lobby.")
         send_json(client_socket, {"type": "info", "msg": f"Chào {nickname}! Kết nối đã được MÃ HÓA SSL."})
-        broadcast({"type": "info", "msg": f"{nickname} đã vào phòng."}, room_name="Lobby")
+        broadcast({"type": "info", "msg": f"{nickname} đã vào phòng."}, room_name="Lobby", exclude_socket=client_socket)
 
         while True:
-            data = recv_json(client_socket)
-            if not data: break
+            try:
+                data = recv_json(client_socket)
+                if not data:
+                    break # Thoát vòng lặp nếu client ngắt kết nối
 
-            cmd = data['type']
-            current_room = clients[client_socket]['room']
-            my_name = clients[client_socket]['nick']
+                cmd = data.get('type')
+                if not cmd: continue
 
-            if cmd == 'chat':
-                msg_content = f"[{current_room}] {my_name}: {data['msg']}"
-                save_log(msg_content)
-                broadcast({
-                    "type": "chat",
-                    "sender": my_name,
-                    "msg": data['msg'],
-                    "room": current_room
-                }, room_name=current_room, exclude_socket=client_socket)
+                current_room = clients[client_socket]['room']
+                my_name = clients[client_socket]['nick']
 
-            elif cmd == 'file':
-                broadcast({
-                    "type": "file",
-                    "sender": my_name,
-                    "filename": data['filename'],
-                    "content": data['content'], 
-                    "room": current_room
-                }, room_name=current_room, exclude_socket=client_socket)
-                save_log(f"[File] {my_name} gửi file được mã hóa trong {current_room}")
+                if cmd == 'chat':
+                    msg_content = f"[{current_room}] {my_name}: {data['msg']}"
+                    save_log(msg_content)
+                    broadcast({
+                        "type": "chat",
+                        "sender": my_name,
+                        "msg": data['msg'],
+                        "room": current_room
+                    }, room_name=current_room, exclude_socket=client_socket)
 
-            elif cmd == 'join_room':
-                new_room = data['room_name']
-                broadcast({"type": "info", "msg": f"{my_name} rời phòng."}, room_name=current_room)
-                clients[client_socket]['room'] = new_room
-                send_json(client_socket, {"type": "info", "msg": f"Đã vào phòng: {new_room}"})
-                broadcast({"type": "info", "msg": f"{my_name} vào phòng."}, room_name=new_room)
+                elif cmd == 'file':
+                    broadcast({
+                        "type": "file",
+                        "sender": my_name,
+                        "filename": data['filename'],
+                        "content": data['content'],
+                        "room": current_room
+                    }, room_name=current_room, exclude_socket=client_socket)
+                    save_log(f"[File] {my_name} gửi file được mã hóa trong {current_room}")
 
-            elif cmd == 'private_msg':
-                recipient = data['recipient']
-                found = False
-                for sock, info in clients.items():
-                    if info['nick'] == recipient:
-                        send_json(sock, {"type": "private", "sender": my_name, "msg": data['msg']})
-                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {data['msg']}"})
-                        found = True; break
-                if not found: send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy '{recipient}'"})
+                elif cmd == 'join_room':
+                    new_room = data['room_name']
+                    broadcast({"type": "info", "msg": f"{my_name} rời phòng."}, room_name=current_room, exclude_socket=client_socket)
+                    clients[client_socket]['room'] = new_room
+                    send_json(client_socket, {"type": "info", "msg": f"Đã vào phòng: {new_room}"})
+                    broadcast({"type": "info", "msg": f"{my_name} vào phòng."}, room_name=new_room, exclude_socket=client_socket)
 
-            elif cmd == 'list_users':
-                users = [info['nick'] for s, info in clients.items() if info['room'] == current_room]
-                send_json(client_socket, {"type": "info", "msg": f"Danh sách {current_room}: {', '.join(users)}"})
+                elif cmd == 'private_msg':
+                    recipient = data.get('recipient')
+                    msg = data.get('msg')
+                    if not recipient or not msg: continue
+                    found = False
+                    for sock, info in clients.items():
+                        if info['nick'] == recipient:
+                            send_json(sock, {"type": "private", "sender": my_name, "msg": msg})
+                            send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {msg}"})
+                            found = True
+                            break
+                    if not found:
+                        send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy '{recipient}'"})
 
-    except:
-        pass
+                elif cmd == 'list_users':
+                    users = [info['nick'] for s, info in clients.items() if info['room'] == current_room]
+                    send_json(client_socket, {"type": "info", "msg": f"Danh sách {current_room}: {', '.join(users)}"})
+
+                elif cmd == 'ping':
+                    send_json(client_socket, {"type": "pong"})
+            
+            except Exception as e:
+                # Ghi lại lỗi mà không ngắt kết nối client
+                error_info = f"LỖI từ client {nickname}: {e}"
+                save_log(error_info)
+                # Có thể gửi thông báo lỗi về cho client nếu cần
+                # send_json(client_socket, {"type": "error", "msg": "Có lỗi xảy ra phía server."})
+    
     finally:
+        # Dọn dẹp khi client thoát
         if client_socket in clients:
-            info = clients[client_socket]
-            del clients[client_socket]
-            broadcast({"type": "info", "msg": f"{info['nick']} thoát."}, room_name=info['room'])
+            info = clients.pop(client_socket) # Dùng pop để xóa và lấy giá trị
+            nickname = info['nick']
+            save_log(f"[DISCONNECT] {nickname} đã thoát.")
+            broadcast({"type": "info", "msg": f"{nickname} thoát."}, room_name=info['room'])
+        
         client_socket.close()
 
 # --- MAIN SERVER STARTUP ---
