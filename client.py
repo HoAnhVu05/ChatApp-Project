@@ -30,6 +30,8 @@ class ChatClient:
         self.nickname = ""
         # Cờ để báo hiệu cho các luồng dừng lại
         self.shutdown_event = threading.Event()
+        # Cờ để đánh dấu đã sẵn sàng nhận input
+        self.ready_for_input = threading.Event()
 
     def _send_json(self, data):
         """Mã hóa và gửi dữ liệu JSON một cách an toàn."""
@@ -81,8 +83,9 @@ class ChatClient:
 
             try:
                 dtype = data.get('type')
-                # In một dòng trống để không ghi đè lên input của người dùng
-                sys.stdout.write('\r' + ' ' * 60 + '\r')
+                
+                # Xóa dòng input hiện tại (nếu có) để in tin nhắn
+                sys.stdout.write('\r' + ' ' * 80 + '\r')
                 
                 if dtype == 'chat':
                     print(f"[{data.get('room', 'Unknown')}] {data.get('sender', 'System')}: {data.get('msg', '')}")
@@ -96,7 +99,7 @@ class ChatClient:
                         self.shutdown_event.set()
                 elif dtype == 'rooms':
                     rooms = data.get('rooms', [])
-                    print(f"\n>>> [PHÒNG HIỆN CÓ]: {', '.join(rooms) if rooms else '(không có phòng nào)'}")
+                    print(f">>> [PHÒNG HIỆN CÓ]: {', '.join(rooms) if rooms else '(không có phòng nào)'}")
                 elif dtype == 'pong':
                     continue # Bỏ qua, chỉ dùng để giữ kết nối
                 elif dtype == 'file':
@@ -106,9 +109,10 @@ class ChatClient:
                     print(f">>> [FILE RIÊNG] {sender} đã gửi file riêng cho bạn.")
                     self._save_file(data)
                 
-                # In lại tên người dùng để họ tiếp tục gõ
-                sys.stdout.write(f"{self.nickname}> ")
-                sys.stdout.flush()
+                # In lại prompt để người dùng tiếp tục gõ (chỉ khi đã sẵn sàng)
+                if self.ready_for_input.is_set():
+                    sys.stdout.write(f"{self.nickname}> ")
+                    sys.stdout.flush()
 
             except Exception as e:
                 print(f"\n[Lỗi] Xảy ra lỗi khi xử lý tin nhắn: {e}")
@@ -251,8 +255,12 @@ class ChatClient:
         threading.Thread(target=self._receive_loop, daemon=True).start()
         threading.Thread(target=self._ping_loop, daemon=True).start()
         
-        # 6. Vòng lặp nhận input từ người dùng
-        print(f"--- CHÀO MỪNG {self.nickname} ĐẾN VỚI SECURE CHAT --- (gõ /help để xem hướng dẫn)")
+        # 6. Đợi một chút để nhận các tin nhắn ban đầu từ server
+        time.sleep(1.0)  # Đợi để server gửi thông báo SSL và các thông báo khác
+        
+        # 7. Đánh dấu sẵn sàng nhận input và bắt đầu vòng lặp
+        self.ready_for_input.set()
+        print(f"\n--- CHÀO MỪNG {self.nickname} ĐẾN VỚI SECURE CHAT --- (gõ /help để xem hướng dẫn)")
         while not self.shutdown_event.is_set():
             try:
                 msg = input(f"{self.nickname}> ")
