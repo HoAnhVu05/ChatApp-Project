@@ -232,6 +232,7 @@ class ChatClient:
                 print("/sendfile <ĐườngDẫn>       : Gửi file cho mọi người trong phòng")
                 print("/senddmfile \"<Tên>\" \"<ĐườngDẫn>\" : Gửi file riêng (dùng \"\" nếu có khoảng trắng)")
                 print("/list                      : Xem danh sách người dùng trong phòng")
+                print("/listserver                : Xem tất cả thành viên trong server (tất cả phòng)")
                 print("/rooms                     : Xem danh sách phòng hiện có")
                 print("/quit                      : Thoát chương trình")
                 print("\nLưu ý: Trong terminal Windows, dán (paste) dùng Ctrl+Shift+V hoặc chuột phải")
@@ -251,6 +252,8 @@ class ChatClient:
                     print("Ví dụ: /dm \"Con Chim\" Chào bạn")
             elif command == '/list':
                 self._send_json({"type": "list_users"})
+            elif command == '/listserver':
+                self._send_json({"type": "list_all_users"})
             elif command == '/rooms':
                 self._send_json({"type": "list_rooms"})
             elif command == '/sendfile':

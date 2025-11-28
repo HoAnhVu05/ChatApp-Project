@@ -148,7 +148,9 @@ def handle_client(client_socket, client_address):
                 elif cmd == 'private_msg':
                     recipient = data.get('recipient')
                     msg = data.get('msg')
-                    if not recipient or not msg: continue
+                    if not recipient or not msg:
+                        send_json(client_socket, {"type": "error", "msg": "Thiếu thông tin. Sử dụng: /dm \"<Tên>\" <TinNhắn>"})
+                        continue
                     
                     recipient_socket = None
                     with clients_lock:
@@ -159,14 +161,35 @@ def handle_client(client_socket, client_address):
                     
                     if recipient_socket:
                         send_json(recipient_socket, {"type": "private", "sender": my_name, "msg": msg})
-                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Tới {recipient}: {msg}"})
+                        send_json(client_socket, {"type": "info", "msg": f"[Mật] Đã gửi tin nhắn tới {recipient}."})
                     else:
                         send_json(client_socket, {"type": "error", "msg": f"Không tìm thấy người dùng '{recipient}'."})
 
                 elif cmd == 'list_users':
                     with clients_lock:
                         users_in_room = [info['nick'] for info in clients.values() if info['room'] == current_room]
-                    send_json(client_socket, {"type": "info", "msg": f"Thành viên trong {current_room}: {', '.join(users_in_room)}"})
+                    send_json(client_socket, {"type": "info", "msg": f"Thành viên trong {current_room}: {', '.join(users_in_room) if users_in_room else '(không có ai)'}"})
+
+                elif cmd == 'list_all_users':
+                    # Trả về danh sách tất cả thành viên trong server với thông tin phòng
+                    with clients_lock:
+                        users_by_room = {}
+                        for info in clients.values():
+                            room = info['room']
+                            nick = info['nick']
+                            if room not in users_by_room:
+                                users_by_room[room] = []
+                            users_by_room[room].append(nick)
+                        
+                        if users_by_room:
+                            # Gửi từng dòng riêng để hiển thị đẹp hơn
+                            send_json(client_socket, {"type": "info", "msg": "=== TẤT CẢ THÀNH VIÊN TRONG SERVER ==="})
+                            for room in sorted(users_by_room.keys()):
+                                users = users_by_room[room]
+                                send_json(client_socket, {"type": "info", "msg": f"  [{room}]: {', '.join(users)}"})
+                            send_json(client_socket, {"type": "info", "msg": "====================================="})
+                        else:
+                            send_json(client_socket, {"type": "info", "msg": "Không có thành viên nào trong server."})
 
                 elif cmd == 'list_rooms':
                     # Trả về danh sách các phòng hiện có (unique)
@@ -175,13 +198,17 @@ def handle_client(client_socket, client_address):
                     send_json(client_socket, {"type": "rooms", "rooms": rooms})
 
                 elif cmd == 'file':
-                    save_log(f"[FILE] {my_name} gửi file trong phòng {current_room}.")
+                    filename = data.get('filename', 'unknown')
+                    save_log(f"[FILE] {my_name} gửi file '{filename}' trong phòng {current_room}.")
                     broadcast(data, current_room, client_socket)
+                    send_json(client_socket, {"type": "info", "msg": f"Đã gửi file '{filename}' tới tất cả thành viên trong phòng {current_room}."})
 
                 elif cmd == 'private_file':
                     recipient = data.get('recipient')
                     filename = data.get('filename')
-                    if not recipient or not filename: continue
+                    if not recipient or not filename:
+                        send_json(client_socket, {"type": "error", "msg": "Thiếu thông tin. Sử dụng: /senddmfile \"<Tên>\" \"<ĐườngDẫn>\""})
+                        continue
                     
                     recipient_socket = None
                     with clients_lock:
